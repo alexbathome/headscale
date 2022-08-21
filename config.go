@@ -38,6 +38,8 @@ type Config struct {
 	LogLevel                       zerolog.Level
 	DisableUpdateCheck             bool
 
+	RegisterWebResponse RegisterWebResponseConfig
+
 	DERP DERPConfig
 
 	DBtype string
@@ -120,6 +122,80 @@ type CLIConfig struct {
 
 type ACLConfig struct {
 	PolicyPath string
+}
+
+// RegisterWebResponseConfig - Use this configuration item to "default" a HTTP response to the registration CLI.
+// For example, Set the "Reponse" to 404, and when the registration URL from the AuthResponse is used, the end user will
+// just recieve a 404, Alternatively, we can perform a 302, and request a redirect to an alternate page.
+type RegisterWebResponseConfig struct {
+	Response *DefaultRegisterWebResponse
+	Redirect *DefaultRegisterWebResponseRedirect
+}
+
+type DefaultRegisterWebResponse struct {
+	HttpResponse string
+}
+
+type DefaultRegisterWebResponseRedirect struct {
+	RedirectUrl url.URL
+}
+
+// TODO(anyone) - IMO, this needs to be moved to a better spot, I don't agree this should live in
+// the config file. When we have a better idea for the project structure, move it to somewhere more appropriate.
+// perhaps somewhere in the internal/ or pkg/ dir once that exists.
+func GetRegisterWebResponseConfig() RegisterWebResponseConfig {
+	r, err := getRegisterWebResponseConfig()
+
+	if err != nil {
+		log.Error().
+			Str("Config", "RegisterWebResponseConfig").
+			Msg(fmt.Sprintf("error during configuration web response, ignoring config. internal error: %s", err.Error()))
+
+		return RegisterWebResponseConfig{}
+	}
+
+	return r
+}
+
+func registerWebResponseDetermineRedirectUrl(redirectUrl string) (*url.URL, error) {
+	if redirectUrl == "" {
+		return nil, fmt.Errorf("no redirect url specified! required with 302 status")
+	}
+	parsedUrl, err := url.Parse(redirectUrl)
+	if err != nil {
+		return nil, err
+	}
+	return parsedUrl, nil
+}
+
+func getRegisterWebResponseConfig() (RegisterWebResponseConfig, error) {
+	status := viper.GetString("register_web_response.status")
+	redirectUrl := viper.GetString("register_web_response.redirect")
+
+	configItem := RegisterWebResponseConfig{}
+	redirectItem := DefaultRegisterWebResponseRedirect{}
+	responseItem := DefaultRegisterWebResponse{}
+
+	switch status {
+	case "404":
+		responseItem.HttpResponse = "404"
+	case "302":
+		responseItem.HttpResponse = "302"
+		rUrl, err := registerWebResponseDetermineRedirectUrl(redirectUrl)
+		if err != nil {
+			return RegisterWebResponseConfig{}, err
+		}
+		redirectItem.RedirectUrl = *rUrl
+	default:
+		responseItem.HttpResponse = "500"
+	}
+
+	configItem = RegisterWebResponseConfig{
+		Response: &responseItem,
+		Redirect: &redirectItem,
+	}
+
+	return configItem, nil
 }
 
 func LoadConfig(path string, isFile bool) error {
@@ -539,6 +615,8 @@ func GetHeadscaleConfig() (*Config, error) {
 			Timeout:  viper.GetDuration("cli.timeout"),
 			Insecure: viper.GetBool("cli.insecure"),
 		},
+
+		RegisterWebResponse: GetRegisterWebResponseConfig(),
 
 		ACL: GetACLConfig(),
 	}, nil

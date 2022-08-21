@@ -108,6 +108,16 @@ var registerWebAPITemplate = template.Must(
 </html>
 `))
 
+func (h *Headscale) registerWebRedirect(
+	writer http.ResponseWriter,
+	req *http.Request,
+) {
+	// Assume redirect is in configration.
+	// h.cfg.RegisterWebResponse.Redirect.RedirectUrl.String()
+	http.Redirect(writer, req, h.cfg.RegisterWebResponse.Redirect.RedirectUrl.String(), 302)
+	return
+}
+
 // RegisterWebAPI shows a simple message in the browser to point to the CLI
 // Listens in /register/:nkey.
 //
@@ -117,6 +127,18 @@ func (h *Headscale) RegisterWebAPI(
 	writer http.ResponseWriter,
 	req *http.Request,
 ) {
+	if h.cfg.RegisterWebResponse.Response != nil {
+		switch h.cfg.RegisterWebResponse.Response.HttpResponse {
+		case "404":
+			http.NotFound(writer, req)
+		case "302":
+			// Redirect expected. Config _should_ have failed to get here without a redirect URL.
+			h.registerWebRedirect(writer, req)
+		}
+
+		return
+	}
+
 	vars := mux.Vars(req)
 	nodeKeyStr, ok := vars["nkey"]
 	if !ok || nodeKeyStr == "" {
